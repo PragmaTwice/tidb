@@ -65,7 +65,7 @@ type BatchPointGetExec struct {
 	virtualColumnRetFieldTypes []*types.FieldType
 
 	snapshot kv.Snapshot
-	stats    *pointGetRuntimeStats
+	stats    *runtimeStatsWithSnapshot
 }
 
 // buildVirtualColumnInfo saves virtual column indices and sort them in definition order
@@ -104,12 +104,12 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 	}
 	if e.runtimeStats != nil {
 		snapshotStats := &tikv.SnapshotRuntimeStats{}
-		e.stats = &pointGetRuntimeStats{
+		e.stats = &runtimeStatsWithSnapshot{
 			BasicRuntimeStats:    e.runtimeStats,
 			SnapshotRuntimeStats: snapshotStats,
 		}
 		snapshot.SetOption(kv.CollectRuntimeStats, snapshotStats)
-		e.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl.RegisterStats(e.id.String(), e.stats)
+		e.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl.RegisterStats(e.id, e.stats)
 	}
 	if e.ctx.GetSessionVars().GetReplicaRead().IsFollowerRead() {
 		snapshot.SetOption(kv.ReplicaRead, kv.ReplicaReadFollower)
@@ -129,6 +129,8 @@ func (e *BatchPointGetExec) Close() error {
 	if e.runtimeStats != nil && e.snapshot != nil {
 		e.snapshot.DelOption(kv.CollectRuntimeStats)
 	}
+	e.inited = 0
+	e.index = 0
 	return nil
 }
 
@@ -160,6 +162,15 @@ func (e *BatchPointGetExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	return nil
 }
 
+func datumsContainNull(vals []types.Datum) bool {
+	for _, val := range vals {
+		if val.IsNull() {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *BatchPointGetExec) initialize(ctx context.Context) error {
 	var handleVals map[string][]byte
 	var indexKeys []kv.Key
@@ -170,6 +181,11 @@ func (e *BatchPointGetExec) initialize(ctx context.Context) error {
 		dedup := make(map[hack.MutableString]struct{})
 		keys := make([]kv.Key, 0, len(e.idxVals))
 		for _, idxVals := range e.idxVals {
+			// For all x, 'x IN (null)' evaluate to null, so the query get no result.
+			if datumsContainNull(idxVals) {
+				continue
+			}
+
 			physID := getPhysID(e.tblInfo, idxVals[e.partPos].GetInt64())
 			idxKey, err1 := EncodeUniqueIndexKey(e.ctx, e.tblInfo, e.idxInfo, idxVals, physID)
 			if err1 != nil && !kv.ErrNotExist.Equal(err1) {
@@ -191,6 +207,11 @@ func (e *BatchPointGetExec) initialize(ctx context.Context) error {
 			})
 		}
 		indexKeys = keys
+
+		// SELECT * FROM t WHERE x IN (null), in this case there is no key.
+		if len(keys) == 0 {
+			return nil
+		}
 
 		// Fetch all handles.
 		handleVals, err = batchGetter.BatchGet(ctx, keys)
