@@ -59,7 +59,6 @@ import (
 	"github.com/pingcap/tidb/util/memory"
 	"github.com/pingcap/tidb/util/printer"
 	"github.com/pingcap/tidb/util/profile"
-	"github.com/pingcap/tidb/util/signal"
 	"github.com/pingcap/tidb/util/storeutil"
 	"github.com/pingcap/tidb/util/sys/linux"
 	storageSys "github.com/pingcap/tidb/util/sys/storage"
@@ -70,6 +69,9 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/grpclog"
+
+	// Fuzz
+	"database/sql"
 )
 
 // Flag Names
@@ -109,11 +111,6 @@ const (
 )
 
 var (
-	version      = flagBoolean(nmVersion, false, "print version information and exit")
-	configPath   = flag.String(nmConfig, "", "config file path")
-	configCheck  = flagBoolean(nmConfigCheck, false, "check config file validity and exit")
-	configStrict = flagBoolean(nmConfigStrict, false, "enforce config file validity")
-
 	// Base
 	store            = flag.String(nmStore, "unistore", "registered store name, [tikv, mocktikv, unistore]")
 	storePath        = flag.String(nmStorePath, "/tmp/tidb", "tidb storage path")
@@ -156,37 +153,6 @@ var (
 	svr      *server.Server
 	graceful bool
 )
-
-func main() {
-	flag.Parse()
-	if *version {
-		fmt.Println(printer.GetTiDBInfo())
-		os.Exit(0)
-	}
-	registerStores()
-	registerMetrics()
-	config.InitializeConfig(*configPath, *configCheck, *configStrict, reloadConfig, overrideConfig)
-	if config.GetGlobalConfig().OOMUseTmpStorage {
-		config.GetGlobalConfig().UpdateTempStoragePath()
-		err := disk.InitializeTempDir()
-		terror.MustNil(err)
-		checkTempStorageQuota()
-	}
-	setGlobalVars()
-	setCPUAffinity()
-	setupLog()
-	setHeapProfileTracker()
-	setupTracing() // Should before createServer and after setup config.
-	printInfo()
-	setupBinlogClient()
-	setupMetrics()
-	createStoreAndDomain()
-	createServer()
-	signal.SetupSignalHandler(serverShutdown)
-	runServer()
-	cleanup()
-	syncLog()
-}
 
 func exit() {
 	syncLog()
@@ -711,4 +677,54 @@ func stringToList(repairString string) []string {
 	return strings.FieldsFunc(repairString, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '"'
 	})
+}
+
+func initFuzzConfig() {
+	config.GetGlobalConfig().Port = 4000
+}
+
+func init() {
+	flag.Parse()
+	registerStores()
+	registerMetrics()
+
+	config.InitializeConfig("", false, false, reloadConfig, overrideConfig)
+	initFuzzConfig()
+	if config.GetGlobalConfig().OOMUseTmpStorage {
+		config.GetGlobalConfig().UpdateTempStoragePath()
+		err := disk.InitializeTempDir()
+		terror.MustNil(err)
+		checkTempStorageQuota()
+	}
+	setGlobalVars()
+	setCPUAffinity()
+	setupLog()
+	setHeapProfileTracker()
+	setupTracing() // Should before createServer and after setup config.
+	printInfo()
+	setupBinlogClient()
+	setupMetrics()
+	createStoreAndDomain()
+	createServer()
+	go runServer()
+}
+
+func Fuzz(rawSql []byte) int {
+	query := string(rawSql)
+
+	dsn := fmt.Sprintf("root@127.0.0.1:4000/test")
+	db, _ := sql.Open("mysql", dsn)
+
+	_, err := db.Exec(query)
+
+	db.Close()
+	serverShutdown(true)
+	cleanup()
+	syncLog()
+
+	if err == nil {
+		return 1
+	}
+
+	return 0
 }
