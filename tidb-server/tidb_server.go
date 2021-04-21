@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package tidbserver
 
 import (
 	"context"
@@ -150,7 +150,8 @@ var (
 	proxyProtocolHeaderTimeout = flag.Uint(nmProxyProtocolHeaderTimeout, 5, "proxy protocol header read timeout, unit is second.")
 )
 
-func main() {
+// Main is needed by fuzzing functions in other package
+func Main() {
 	help := flag.Bool("help", false, "show the usage")
 	flag.Parse()
 	if *help {

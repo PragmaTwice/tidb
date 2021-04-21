@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package tidbserver
 
 import (
 	"testing"
@@ -23,11 +23,11 @@ import (
 
 var isCoverageServer = "0"
 
-// TestRunMain is a dummy test case, which contains only the main function of tidb-server,
+// TestRunMain is a dummy test case, which contains only the Main function of tidb-server,
 // and it is used to generate coverage_server.
 func TestRunMain(t *testing.T) {
 	if isCoverageServer == "1" {
-		main()
+		Main()
 	}
 }
 
