@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/auth"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/infoschema"
@@ -27,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/planner/property"
 	"github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/types"
 	utilhint "github.com/pingcap/tidb/util/hint"
 	"github.com/pingcap/tidb/util/set"
@@ -38,6 +40,9 @@ var OptimizeAstNode func(ctx context.Context, sctx sessionctx.Context, node ast.
 
 // AllowCartesianProduct means whether tidb allows cartesian join without equal conditions.
 var AllowCartesianProduct = atomic.NewBool(true)
+
+// IsReadOnly check whether the ast.Node is a read only statement.
+var IsReadOnly func(node ast.Node, vars *variable.SessionVars) bool
 
 const (
 	flagGcSubstitute uint64 = 1 << iota
@@ -83,7 +88,7 @@ type logicalOptRule interface {
 func BuildLogicalPlan(ctx context.Context, sctx sessionctx.Context, node ast.Node, is infoschema.InfoSchema) (Plan, types.NameSlice, error) {
 	sctx.GetSessionVars().PlanID = 0
 	sctx.GetSessionVars().PlanColumnID = 0
-	builder := NewPlanBuilder(sctx, is, &utilhint.BlockHintProcessor{})
+	builder, _ := NewPlanBuilder(sctx, is, &utilhint.BlockHintProcessor{})
 	p, err := builder.Build(ctx, node)
 	if err != nil {
 		return nil, nil, err
@@ -94,7 +99,14 @@ func BuildLogicalPlan(ctx context.Context, sctx sessionctx.Context, node ast.Nod
 // CheckPrivilege checks the privilege for a user.
 func CheckPrivilege(activeRoles []*auth.RoleIdentity, pm privilege.Manager, vs []visitInfo) error {
 	for _, v := range vs {
-		if !pm.RequestVerification(activeRoles, v.db, v.table, v.column, v.privilege) {
+		if v.privilege == mysql.ExtendedPriv {
+			if !pm.RequestDynamicVerification(activeRoles, v.dynamicPriv, v.dynamicWithGrant) {
+				if v.err == nil {
+					return ErrPrivilegeCheckFail
+				}
+				return v.err
+			}
+		} else if !pm.RequestVerification(activeRoles, v.db, v.table, v.column, v.privilege) {
 			if v.err == nil {
 				return ErrPrivilegeCheckFail
 			}
@@ -111,7 +123,7 @@ func CheckTableLock(ctx sessionctx.Context, is infoschema.InfoSchema, vs []visit
 	}
 	checker := lock.NewChecker(ctx, is)
 	for i := range vs {
-		err := checker.CheckTableLock(vs[i].db, vs[i].table, vs[i].privilege)
+		err := checker.CheckTableLock(vs[i].db, vs[i].table, vs[i].privilege, vs[i].alterWritable)
 		if err != nil {
 			return err
 		}
@@ -146,7 +158,7 @@ func DoOptimize(ctx context.Context, sctx sessionctx.Context, flag uint64, logic
 
 func postOptimize(sctx sessionctx.Context, plan PhysicalPlan) PhysicalPlan {
 	plan = eliminatePhysicalProjection(plan)
-	plan = injectExtraProjection(plan)
+	plan = InjectExtraProjection(plan)
 	plan = eliminateUnionScanAndLock(sctx, plan)
 	plan = enableParallelApply(sctx, plan)
 	return plan
@@ -164,7 +176,7 @@ func enableParallelApply(sctx sessionctx.Context, plan PhysicalPlan) PhysicalPla
 	//		while A3 is the inner child. Then A1 and A2 can be parallel and A3 cannot.
 	if apply, ok := plan.(*PhysicalApply); ok {
 		outerIdx := 1 - apply.InnerChildIdx
-		noOrder := len(apply.GetChildReqProps(outerIdx).Items) == 0 // limitation 1
+		noOrder := len(apply.GetChildReqProps(outerIdx).SortItems) == 0 // limitation 1
 		_, err := SafeClone(apply.Children()[apply.InnerChildIdx])
 		supportClone := err == nil // limitation 2
 		if noOrder && supportClone {

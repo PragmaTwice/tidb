@@ -51,7 +51,7 @@ func (a *aggregationEliminateChecker) tryToEliminateAggregation(agg *LogicalAggr
 			return nil
 		}
 	}
-	schemaByGroupby := expression.NewSchema(agg.groupByCols...)
+	schemaByGroupby := expression.NewSchema(agg.GetGroupByCols()...)
 	coveredByUniqueKey := false
 	for _, key := range agg.children[0].Schema().Keys {
 		if schemaByGroupby.ColumnsIndices(key) != nil {
@@ -67,6 +67,42 @@ func (a *aggregationEliminateChecker) tryToEliminateAggregation(agg *LogicalAggr
 		}
 	}
 	return nil
+}
+
+func (a *aggregationEliminateChecker) tryToEliminateDistinct(agg *LogicalAggregation) {
+	for _, af := range agg.AggFuncs {
+		if af.HasDistinct {
+			cols := make([]*expression.Column, 0, len(af.Args))
+			canEliminate := true
+			for _, arg := range af.Args {
+				if col, ok := arg.(*expression.Column); ok {
+					cols = append(cols, col)
+				} else {
+					canEliminate = false
+					break
+				}
+			}
+			if canEliminate {
+				distinctByUniqueKey := false
+				schemaByDistinct := expression.NewSchema(cols...)
+				for _, key := range agg.children[0].Schema().Keys {
+					if schemaByDistinct.ColumnsIndices(key) != nil {
+						distinctByUniqueKey = true
+						break
+					}
+				}
+				for _, key := range agg.children[0].Schema().UniqueKeys {
+					if schemaByDistinct.ColumnsIndices(key) != nil {
+						distinctByUniqueKey = true
+						break
+					}
+				}
+				if distinctByUniqueKey {
+					af.HasDistinct = false
+				}
+			}
+		}
+	}
 }
 
 // ConvertAggToProj convert aggregation to projection.
@@ -136,7 +172,7 @@ func rewriteBitFunc(ctx sessionctx.Context, funcType string, arg expression.Expr
 
 // wrapCastFunction will wrap a cast if the targetTp is not equal to the arg's.
 func wrapCastFunction(ctx sessionctx.Context, arg expression.Expression, targetTp *types.FieldType) expression.Expression {
-	if arg.GetType() == targetTp {
+	if arg.GetType().Equal(targetTp) {
 		return arg
 	}
 	return expression.BuildCastFunction(ctx, arg, targetTp)
@@ -156,6 +192,7 @@ func (a *aggregationEliminator) optimize(ctx context.Context, p LogicalPlan) (Lo
 	if !ok {
 		return p, nil
 	}
+	a.tryToEliminateDistinct(agg)
 	if proj := a.tryToEliminateAggregation(agg); proj != nil {
 		return proj, nil
 	}

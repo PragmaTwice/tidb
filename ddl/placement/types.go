@@ -13,6 +13,10 @@
 
 package placement
 
+import (
+	"encoding/json"
+)
+
 // Refer to https://github.com/tikv/pd/issues/2701 .
 // IMO, it is indeed not bad to have a copy of definition.
 // After all, placement rules are communicated using an HTTP API. Loose
@@ -32,44 +36,60 @@ const (
 	Learner PeerRoleType = "learner"
 )
 
-// LabelConstraintOp defines how a LabelConstraint matches a store.
-type LabelConstraintOp string
-
-const (
-	// In restricts the store label value should in the value list.
-	// If label does not exist, `in` is always false.
-	In LabelConstraintOp = "in"
-	// NotIn restricts the store label value should not in the value list.
-	// If label does not exist, `notIn` is always true.
-	NotIn LabelConstraintOp = "notIn"
-	// Exists restricts the store should have the label.
-	Exists LabelConstraintOp = "exists"
-	// NotExists restricts the store should not have the label.
-	NotExists LabelConstraintOp = "notExists"
-)
-
-// LabelConstraint is used to filter store when trying to place peer of a region.
-type LabelConstraint struct {
-	Key    string            `json:"key,omitempty"`
-	Op     LabelConstraintOp `json:"op,omitempty"`
-	Values []string          `json:"values,omitempty"`
-}
-
 // Rule is the placement rule. Check https://github.com/tikv/pd/blob/master/server/schedule/placement/rule.go.
 type Rule struct {
-	GroupID          string            `json:"group_id"`
-	ID               string            `json:"id"`
-	Index            int               `json:"index,omitempty"`
-	Override         bool              `json:"override,omitempty"`
-	StartKey         []byte            `json:"-"`
-	StartKeyHex      string            `json:"start_key"`
-	EndKey           []byte            `json:"-"`
-	EndKeyHex        string            `json:"end_key"`
-	Role             PeerRoleType      `json:"role"`
-	Count            int               `json:"count"`
-	LabelConstraints []LabelConstraint `json:"label_constraints,omitempty"`
-	LocationLabels   []string          `json:"location_labels,omitempty"`
-	IsolationLevel   string            `json:"isolation_level,omitempty"`
+	GroupID          string       `json:"group_id"`
+	ID               string       `json:"id"`
+	Index            int          `json:"index,omitempty"`
+	Override         bool         `json:"override,omitempty"`
+	StartKeyHex      string       `json:"start_key"`
+	EndKeyHex        string       `json:"end_key"`
+	Role             PeerRoleType `json:"role"`
+	Count            int          `json:"count"`
+	LabelConstraints []Constraint `json:"label_constraints,omitempty"`
+	LocationLabels   []string     `json:"location_labels,omitempty"`
+	IsolationLevel   string       `json:"isolation_level,omitempty"`
+}
+
+// Clone is used to duplicate a RuleOp for safe modification.
+func (r *Rule) Clone() *Rule {
+	n := &Rule{}
+	*n = *r
+	return n
+}
+
+// Bundle is a group of all rules and configurations. It is used to support rule cache.
+type Bundle struct {
+	ID       string  `json:"group_id"`
+	Index    int     `json:"group_index"`
+	Override bool    `json:"group_override"`
+	Rules    []*Rule `json:"rules"`
+}
+
+func (b *Bundle) String() string {
+	t, err := json.Marshal(b)
+	if err != nil {
+		return ""
+	}
+	return string(t)
+}
+
+// Clone is used to duplicate a bundle.
+func (b *Bundle) Clone() *Bundle {
+	newBundle := &Bundle{}
+	*newBundle = *b
+	if len(b.Rules) > 0 {
+		newBundle.Rules = make([]*Rule, 0, len(b.Rules))
+		for i := range b.Rules {
+			newBundle.Rules = append(newBundle.Rules, b.Rules[i].Clone())
+		}
+	}
+	return newBundle
+}
+
+// IsEmpty is used to check if a bundle is empty.
+func (b *Bundle) IsEmpty() bool {
+	return len(b.Rules) == 0 && b.Index == 0 && !b.Override
 }
 
 // RuleOpType indicates the operation type.
@@ -96,4 +116,12 @@ func (op *RuleOp) Clone() *RuleOp {
 	newOp.Rule = &Rule{}
 	*newOp.Rule = *op.Rule
 	return newOp
+}
+
+func (op *RuleOp) String() string {
+	b, err := json.Marshal(op)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

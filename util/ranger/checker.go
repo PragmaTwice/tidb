@@ -68,7 +68,7 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 		}
 	case ast.IsNull:
 		return c.checkColumn(scalar.GetArgs()[0])
-	case ast.IsTruth, ast.IsFalsity:
+	case ast.IsTruthWithoutNull, ast.IsFalsity, ast.IsTruthWithNull:
 		if s, ok := scalar.GetArgs()[0].(*expression.Column); ok {
 			if s.RetType.EvalType() == types.ETString {
 				return false
@@ -90,7 +90,7 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 		if !c.checkColumn(scalar.GetArgs()[0]) {
 			return false
 		}
-		if scalar.GetArgs()[1].GetType().EvalType() == types.ETString && !collate.CompatibleCollate(scalar.GetArgs()[0].GetType().Collate, collation) {
+		if scalar.GetArgs()[0].GetType().EvalType() == types.ETString && !collate.CompatibleCollate(scalar.GetArgs()[0].GetType().Collate, collation) {
 			return false
 		}
 		for _, v := range scalar.GetArgs()[1:] {

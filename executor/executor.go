@@ -47,6 +47,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	tikvstore "github.com/pingcap/tidb/store/tikv/kv"
+	tikvutil "github.com/pingcap/tidb/store/tikv/util"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/tablecodec"
@@ -112,6 +114,7 @@ const (
 
 // globalPanicOnExceed panics when GlobalDisTracker storage usage exceeds storage quota.
 type globalPanicOnExceed struct {
+	memory.BaseOOMAction
 	mutex sync.Mutex // For synchronization.
 }
 
@@ -142,8 +145,10 @@ func (a *globalPanicOnExceed) Action(t *memory.Tracker) {
 	panic(msg)
 }
 
-// SetFallback sets a fallback action.
-func (a *globalPanicOnExceed) SetFallback(memory.ActionOnExceed) {}
+// GetPriority get the priority of the Action
+func (a *globalPanicOnExceed) GetPriority() int64 {
+	return memory.DefPanicPriority
+}
 
 // base returns the baseExecutor of an executor, don't override this method!
 func (e *baseExecutor) base() *baseExecutor {
@@ -201,6 +206,11 @@ func retTypes(e Executor) []*types.FieldType {
 // Next fills multiple rows into a chunk.
 func (e *baseExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 	return nil
+}
+
+func (e *baseExecutor) updateDeltaForTableID(id int64) {
+	txnCtx := e.ctx.GetSessionVars().TxnCtx
+	txnCtx.UpdateDeltaForTable(id, 0, 0, map[int64]int64{})
 }
 
 func newBaseExecutor(ctx sessionctx.Context, schema *expression.Schema, id int, children ...Executor) baseExecutor {
@@ -417,10 +427,10 @@ type ShowDDLJobsExec struct {
 
 	jobNumber int
 	is        infoschema.InfoSchema
-	done      bool
 }
 
 // DDLJobRetriever retrieve the DDLJobs.
+// nolint:structcheck
 type DDLJobRetriever struct {
 	runningJobs    []*model.Job
 	historyJobIter *meta.LastJobIterator
@@ -869,7 +879,7 @@ func (e *ShowSlowExec) Next(ctx context.Context, req *chunk.Chunk) error {
 type SelectLockExec struct {
 	baseExecutor
 
-	Lock ast.SelectLockType
+	Lock *ast.SelectLockInfo
 	keys []kv.Key
 
 	tblID2Handle     map[int64][]plannercore.HandleCols
@@ -907,7 +917,7 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return err
 	}
 	// If there's no handle or it's not a `SELECT FOR UPDATE` statement.
-	if len(e.tblID2Handle) == 0 || (e.Lock != ast.SelectLockForUpdate && e.Lock != ast.SelectLockForUpdateNoWait) {
+	if len(e.tblID2Handle) == 0 || (!plannercore.IsSelectForUpdateLockType(e.Lock.LockType)) {
 		return nil
 	}
 
@@ -937,15 +947,29 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return nil
 	}
 	lockWaitTime := e.ctx.GetSessionVars().LockWaitTimeout
-	if e.Lock == ast.SelectLockForUpdateNoWait {
+	if e.Lock.LockType == ast.SelectLockForUpdateNoWait {
 		lockWaitTime = kv.LockNoWait
+	} else if e.Lock.LockType == ast.SelectLockForUpdateWaitN {
+		lockWaitTime = int64(e.Lock.WaitSec) * 1000
+	}
+
+	if len(e.tblID2Handle) > 0 {
+		for id := range e.tblID2Handle {
+			e.updateDeltaForTableID(id)
+		}
+	}
+	if len(e.partitionedTable) > 0 {
+		for _, p := range e.partitionedTable {
+			pid := p.Meta().ID
+			e.updateDeltaForTableID(pid)
+		}
 	}
 
 	return doLockKeys(ctx, e.ctx, newLockCtx(e.ctx.GetSessionVars(), lockWaitTime), e.keys...)
 }
 
-func newLockCtx(seVars *variable.SessionVars, lockWaitTime int64) *kv.LockCtx {
-	return &kv.LockCtx{
+func newLockCtx(seVars *variable.SessionVars, lockWaitTime int64) *tikvstore.LockCtx {
+	return &tikvstore.LockCtx{
 		Killed:                &seVars.Killed,
 		ForUpdateTS:           seVars.TxnCtx.GetForUpdateTS(),
 		LockWaitTime:          lockWaitTime,
@@ -961,7 +985,7 @@ func newLockCtx(seVars *variable.SessionVars, lockWaitTime int64) *kv.LockCtx {
 // waitTime means the lock operation will wait in milliseconds if target key is already
 // locked by others. used for (select for update nowait) situation
 // except 0 means alwaysWait 1 means nowait
-func doLockKeys(ctx context.Context, se sessionctx.Context, lockCtx *kv.LockCtx, keys ...kv.Key) error {
+func doLockKeys(ctx context.Context, se sessionctx.Context, lockCtx *tikvstore.LockCtx, keys ...kv.Key) error {
 	sctx := se.GetSessionVars().StmtCtx
 	if !sctx.InUpdateStmt && !sctx.InDeleteStmt {
 		atomic.StoreUint32(&se.GetSessionVars().TxnCtx.ForUpdate, 1)
@@ -971,7 +995,13 @@ func doLockKeys(ctx context.Context, se sessionctx.Context, lockCtx *kv.LockCtx,
 	if err != nil {
 		return err
 	}
-	return txn.LockKeys(sessionctx.SetCommitCtx(ctx, se), lockCtx, keys...)
+	var lockKeyStats *tikvutil.LockKeysDetails
+	ctx = context.WithValue(ctx, tikvutil.LockKeysDetailCtxKey, &lockKeyStats)
+	err = txn.LockKeys(tikvutil.SetSessionID(ctx, se.GetSessionVars().ConnectionID), lockCtx, keys...)
+	if lockKeyStats != nil {
+		sctx.MergeLockKeysExecDetails(lockKeyStats)
+	}
+	return err
 }
 
 // LimitExec represents limit executor
@@ -987,6 +1017,9 @@ type LimitExec struct {
 	meetFirstBatch bool
 
 	childResult *chunk.Chunk
+
+	// columnIdxsUsedByChild keep column indexes of child executor used for inline projection
+	columnIdxsUsedByChild []int
 }
 
 // Next implements the Executor Next interface.
@@ -1017,26 +1050,42 @@ func (e *LimitExec) Next(ctx context.Context, req *chunk.Chunk) error {
 			if begin == end {
 				break
 			}
-			req.Append(e.childResult, int(begin), int(end))
+			if e.columnIdxsUsedByChild != nil {
+				req.Append(e.childResult.Prune(e.columnIdxsUsedByChild), int(begin), int(end))
+			} else {
+				req.Append(e.childResult, int(begin), int(end))
+			}
 			return nil
 		}
 		e.cursor += batchSize
 	}
-	e.adjustRequiredRows(req)
-	err := Next(ctx, e.children[0], req)
+	e.childResult.Reset()
+	e.childResult = e.childResult.SetRequiredRows(req.RequiredRows(), e.maxChunkSize)
+	e.adjustRequiredRows(e.childResult)
+	err := Next(ctx, e.children[0], e.childResult)
 	if err != nil {
 		return err
 	}
-	batchSize := uint64(req.NumRows())
+	batchSize := uint64(e.childResult.NumRows())
 	// no more data.
 	if batchSize == 0 {
 		return nil
 	}
 	if e.cursor+batchSize > e.end {
-		req.TruncateTo(int(e.end - e.cursor))
+		e.childResult.TruncateTo(int(e.end - e.cursor))
 		batchSize = e.end - e.cursor
 	}
 	e.cursor += batchSize
+
+	if e.columnIdxsUsedByChild != nil {
+		for i, childIdx := range e.columnIdxsUsedByChild {
+			if err = req.SwapColumn(i, e.childResult, childIdx); err != nil {
+				return err
+			}
+		}
+	} else {
+		req.SwapColumns(e.childResult)
+	}
 	return nil
 }
 
@@ -1103,17 +1152,16 @@ func init() {
 			return nil, err
 		}
 		chk := newFirstChunk(exec)
-		for {
-			err = Next(ctx, exec, chk)
-			if err != nil {
-				return nil, err
-			}
-			if chk.NumRows() == 0 {
-				return nil, nil
-			}
-			row := chk.GetRow(0).GetDatumRow(retTypes(exec))
-			return row, err
+
+		err = Next(ctx, exec, chk)
+		if err != nil {
+			return nil, err
 		}
+		if chk.NumRows() == 0 {
+			return nil, nil
+		}
+		row := chk.GetRow(0).GetDatumRow(retTypes(exec))
+		return row, err
 	}
 }
 
@@ -1284,7 +1332,10 @@ func (e *TableScanExec) nextChunk4InfoSchema(ctx context.Context, chk *chunk.Chu
 			columns[i] = table.ToColumn(colInfo)
 		}
 		mutableRow := chunk.MutRowFromTypes(retTypes(e))
-		err := e.t.IterRecords(e.ctx, nil, columns, func(_ kv.Handle, rec []types.Datum, cols []*table.Column) (bool, error) {
+		type tableIter interface {
+			IterRecords(sessionctx.Context, []*table.Column, table.RecordIterFunc) error
+		}
+		err := (e.t.(tableIter)).IterRecords(e.ctx, columns, func(_ kv.Handle, rec []types.Datum, cols []*table.Column) (bool, error) {
 			mutableRow.SetDatums(rec...)
 			e.virtualTableChunkList.AppendRow(mutableRow.ToRow())
 			return true, nil
@@ -1344,7 +1395,7 @@ func (e *MaxOneRowExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		}
 		return nil
 	} else if num != 1 {
-		return errors.New("subquery returns more than 1 row")
+		return ErrSubqueryMoreThan1Row
 	}
 
 	childChunk := newFirstChunk(e.children[0])
@@ -1353,7 +1404,7 @@ func (e *MaxOneRowExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return err
 	}
 	if childChunk.NumRows() != 0 {
-		return errors.New("subquery returns more than 1 row")
+		return ErrSubqueryMoreThan1Row
 	}
 
 	return nil
@@ -1379,6 +1430,8 @@ func (e *MaxOneRowExec) Next(ctx context.Context, req *chunk.Chunk) error {
 //                              +-------------+
 type UnionExec struct {
 	baseExecutor
+	concurrency int
+	childIDChan chan int
 
 	stopFetchData atomic.Value
 
@@ -1386,9 +1439,9 @@ type UnionExec struct {
 	resourcePools []chan *chunk.Chunk
 	resultPool    chan *unionWorkerResult
 
-	childrenResults []*chunk.Chunk
-	wg              sync.WaitGroup
-	initialized     bool
+	results     []*chunk.Chunk
+	wg          sync.WaitGroup
+	initialized bool
 }
 
 // unionWorkerResult stores the result for a union worker.
@@ -1411,9 +1464,6 @@ func (e *UnionExec) Open(ctx context.Context) error {
 	if err := e.baseExecutor.Open(ctx); err != nil {
 		return err
 	}
-	for _, child := range e.children {
-		e.childrenResults = append(e.childrenResults, newFirstChunk(child))
-	}
 	e.stopFetchData.Store(false)
 	e.initialized = false
 	e.finished = make(chan struct{})
@@ -1421,22 +1471,33 @@ func (e *UnionExec) Open(ctx context.Context) error {
 }
 
 func (e *UnionExec) initialize(ctx context.Context) {
-	e.resultPool = make(chan *unionWorkerResult, len(e.children))
-	e.resourcePools = make([]chan *chunk.Chunk, len(e.children))
-	for i := range e.children {
+	if e.concurrency > len(e.children) {
+		e.concurrency = len(e.children)
+	}
+	for i := 0; i < e.concurrency; i++ {
+		e.results = append(e.results, newFirstChunk(e.children[0]))
+	}
+	e.resultPool = make(chan *unionWorkerResult, e.concurrency)
+	e.resourcePools = make([]chan *chunk.Chunk, e.concurrency)
+	e.childIDChan = make(chan int, len(e.children))
+	for i := 0; i < e.concurrency; i++ {
 		e.resourcePools[i] = make(chan *chunk.Chunk, 1)
-		e.resourcePools[i] <- e.childrenResults[i]
+		e.resourcePools[i] <- e.results[i]
 		e.wg.Add(1)
 		go e.resultPuller(ctx, i)
 	}
+	for i := 0; i < len(e.children); i++ {
+		e.childIDChan <- i
+	}
+	close(e.childIDChan)
 	go e.waitAllFinished()
 }
 
-func (e *UnionExec) resultPuller(ctx context.Context, childID int) {
+func (e *UnionExec) resultPuller(ctx context.Context, workerID int) {
 	result := &unionWorkerResult{
 		err: nil,
 		chk: nil,
-		src: e.resourcePools[childID],
+		src: e.resourcePools[workerID],
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -1450,23 +1511,26 @@ func (e *UnionExec) resultPuller(ctx context.Context, childID int) {
 		}
 		e.wg.Done()
 	}()
-	for {
-		if e.stopFetchData.Load().(bool) {
-			return
-		}
-		select {
-		case <-e.finished:
-			return
-		case result.chk = <-e.resourcePools[childID]:
-		}
-		result.err = Next(ctx, e.children[childID], result.chk)
-		if result.err == nil && result.chk.NumRows() == 0 {
-			return
-		}
-		e.resultPool <- result
-		if result.err != nil {
-			e.stopFetchData.Store(true)
-			return
+	for childID := range e.childIDChan {
+		for {
+			if e.stopFetchData.Load().(bool) {
+				return
+			}
+			select {
+			case <-e.finished:
+				return
+			case result.chk = <-e.resourcePools[workerID]:
+			}
+			result.err = Next(ctx, e.children[childID], result.chk)
+			if result.err == nil && result.chk.NumRows() == 0 {
+				e.resourcePools[workerID] <- result.chk
+				break
+			}
+			e.resultPool <- result
+			if result.err != nil {
+				e.stopFetchData.Store(true)
+				return
+			}
 		}
 	}
 }
@@ -1486,6 +1550,10 @@ func (e *UnionExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return errors.Trace(result.err)
 	}
 
+	if result.chk.NumCols() != req.NumCols() {
+		return errors.Errorf("Internal error: UnionExec chunk column count mismatch, req: %d, result: %d",
+			req.NumCols(), result.chk.NumCols())
+	}
 	req.SwapColumns(result.chk)
 	result.src <- result.chk
 	return nil
@@ -1496,12 +1564,16 @@ func (e *UnionExec) Close() error {
 	if e.finished != nil {
 		close(e.finished)
 	}
-	e.childrenResults = nil
+	e.results = nil
 	if e.resultPool != nil {
 		for range e.resultPool {
 		}
 	}
 	e.resourcePools = nil
+	if e.childIDChan != nil {
+		for range e.childIDChan {
+		}
+	}
 	return e.baseExecutor.Close()
 }
 
@@ -1509,15 +1581,6 @@ func (e *UnionExec) Close() error {
 // Before every execution, we must clear statement context.
 func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 	vars := ctx.GetSessionVars()
-	// Detach the Memory and disk tracker for the previous stmtCtx from GlobalMemoryUsageTracker and GlobalDiskUsageTracker
-	if stmtCtx := vars.StmtCtx; stmtCtx != nil {
-		if stmtCtx.DiskTracker != nil {
-			stmtCtx.DiskTracker.DetachFromGlobalTracker()
-		}
-		if stmtCtx.MemTracker != nil {
-			stmtCtx.MemTracker.DetachFromGlobalTracker()
-		}
-	}
 	sc := &stmtctx.StatementContext{
 		TimeZone:    vars.Location(),
 		MemTracker:  memory.NewTracker(memory.LabelForSQLText, vars.MemQuotaQuery),
@@ -1551,6 +1614,7 @@ func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 	sc.OriginalSQL = s.Text()
 	if explainStmt, ok := s.(*ast.ExplainStmt); ok {
 		sc.InExplainStmt = true
+		sc.IgnoreExplainIDSuffix = (strings.ToLower(explainStmt.Format) == ast.ExplainFormatBrief)
 		s = explainStmt.Stmt
 	}
 	if _, ok := s.(*ast.ExplainForStmt); ok {
@@ -1570,27 +1634,31 @@ func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 		sc.TruncateAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 		sc.DividedByZeroAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 		sc.AllowInvalidDate = vars.SQLMode.HasAllowInvalidDatesMode()
-		sc.IgnoreZeroInDate = !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
+		sc.IgnoreZeroInDate = !vars.SQLMode.HasNoZeroInDateMode() || !vars.SQLMode.HasNoZeroDateMode() || !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
 		sc.Priority = stmt.Priority
 	case *ast.InsertStmt:
 		sc.InInsertStmt = true
 		// For insert statement (not for update statement), disabling the StrictSQLMode
 		// should make TruncateAsWarning and DividedByZeroAsWarning,
-		// but should not make DupKeyAsWarning or BadNullAsWarning,
+		// but should not make DupKeyAsWarning.
 		sc.DupKeyAsWarning = stmt.IgnoreErr
-		sc.BadNullAsWarning = stmt.IgnoreErr
+		sc.BadNullAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
+		sc.IgnoreNoPartition = stmt.IgnoreErr
 		sc.TruncateAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 		sc.DividedByZeroAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 		sc.AllowInvalidDate = vars.SQLMode.HasAllowInvalidDatesMode()
-		sc.IgnoreZeroInDate = !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
+		sc.IgnoreZeroInDate = !vars.SQLMode.HasNoZeroInDateMode() || !vars.SQLMode.HasNoZeroDateMode() || !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
 		sc.Priority = stmt.Priority
 	case *ast.CreateTableStmt, *ast.AlterTableStmt:
 		// Make sure the sql_mode is strict when checking column default value.
+		sc.InCreateOrAlterStmt = true
 	case *ast.LoadDataStmt:
 		sc.DupKeyAsWarning = true
 		sc.BadNullAsWarning = true
 		sc.TruncateAsWarning = !vars.StrictSQLMode
 		sc.InLoadDataStmt = true
+		// return warning instead of error when load data meet no partition for value
+		sc.IgnoreNoPartition = true
 	case *ast.SelectStmt:
 		sc.InSelectStmt = true
 
@@ -1657,6 +1725,9 @@ func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 	vars.StmtCtx = sc
 	vars.PrevFoundInPlanCache = vars.FoundInPlanCache
 	vars.FoundInPlanCache = false
+	vars.ClearStmtVars()
+	vars.PrevFoundInBinding = vars.FoundInBinding
+	vars.FoundInBinding = false
 	return
 }
 
@@ -1668,8 +1739,9 @@ func ResetUpdateStmtCtx(sc *stmtctx.StatementContext, stmt *ast.UpdateStmt, vars
 	sc.TruncateAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 	sc.DividedByZeroAsWarning = !vars.StrictSQLMode || stmt.IgnoreErr
 	sc.AllowInvalidDate = vars.SQLMode.HasAllowInvalidDatesMode()
-	sc.IgnoreZeroInDate = !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
+	sc.IgnoreZeroInDate = !vars.SQLMode.HasNoZeroInDateMode() || !vars.SQLMode.HasNoZeroDateMode() || !vars.StrictSQLMode || stmt.IgnoreErr || sc.AllowInvalidDate
 	sc.Priority = stmt.Priority
+	sc.IgnoreNoPartition = stmt.IgnoreErr
 }
 
 // FillVirtualColumnValue will calculate the virtual column value by evaluating generated
@@ -1689,6 +1761,10 @@ func FillVirtualColumnValue(virtualRetTypes []*types.FieldType, virtualColumnInd
 			castDatum, err := table.CastValue(sctx, datum, columns[idx], false, true)
 			if err != nil {
 				return err
+			}
+			// Handle the bad null error.
+			if (mysql.HasNotNullFlag(columns[idx].Flag) || mysql.HasPreventNullInsertFlag(columns[idx].Flag)) && castDatum.IsNull() {
+				castDatum = table.GetZeroValue(columns[idx])
 			}
 			virCols.AppendDatum(i, &castDatum)
 		}
