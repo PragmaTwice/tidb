@@ -15,6 +15,7 @@ require (
 	github.com/danjacques/gofslock v0.0.0-20191023191349-0a45f885bc37
 	github.com/dgraph-io/ristretto v0.0.1
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
+	github.com/dvyukov/go-fuzz v0.0.0-20210420165743-2fedac326dda
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/fsouza/fake-gcs-server v1.17.0 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
