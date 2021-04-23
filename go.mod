@@ -15,7 +15,6 @@ require (
 	github.com/danjacques/gofslock v0.0.0-20191023191349-0a45f885bc37
 	github.com/dgraph-io/ristretto v0.0.1
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
-	github.com/dvyukov/go-fuzz v0.0.0-20210420165743-2fedac326dda
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/fsouza/fake-gcs-server v1.17.0 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
@@ -38,6 +37,7 @@ require (
 	github.com/ngaut/sync2 v0.0.0-20141008032647-7a24ed77b2ef
 	github.com/opentracing/basictracer-go v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
+	github.com/oraluben/go-fuzz v0.0.0-20210420165743-2fedac326dda // indirect
 	github.com/phayes/freeport v0.0.0-20180830031419-95f893ade6f2
 	github.com/pingcap/badger v1.5.1-0.20200908111422-2e78ee155d19
 	github.com/pingcap/br v5.0.0-nightly.0.20210419090151-03762465b589+incompatible

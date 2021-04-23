@@ -9,7 +9,7 @@ import (
 	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 	// to pin dep in go.mod
-	_ "github.com/dvyukov/go-fuzz/go-fuzz-dep"
+	_ "github.com/oraluben/go-fuzz/go-fuzz-dep"
 
 	server "github.com/pingcap/tidb/tidb-server"
 )
