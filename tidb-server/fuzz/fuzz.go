@@ -3,14 +3,18 @@
 package fuzz
 
 import (
+	"database/sql"
+	"fmt"
+	"io/ioutil"
 	"os"
+	"path"
 	"time"
 
-	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 	// to pin dep in go.mod
 	_ "github.com/oraluben/go-fuzz/go-fuzz-dep"
 
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/tidb-server/internal"
 )
 
@@ -20,10 +24,26 @@ var err error
 func init() {
 	os.Args = []string{os.Args[0]}
 
-	go internal.Main()
+	instanceDir, err := ioutil.TempDir("", "tidb-fuzz.*")
+	if err != nil {
+		panic(err)
+	}
+	sockName := path.Join(instanceDir, "tidb.sock")
+	storeDir := path.Join(instanceDir, "store")
+	tmpDir := path.Join(instanceDir, "tmp")
+
+	go internal.MainWithConfig(func(c *config.Config) {
+		c.Host = ""
+		c.Port = 0
+		c.Socket = sockName
+		c.Store = "unistore"
+		c.Path = storeDir
+		c.Status.StatusPort = 0
+		c.TempStoragePath = tmpDir
+	})
 
 	for i := 0; i < 5; i++ {
-		conn, err = sql.Open("mysql", "root@tcp(127.0.0.1:4000)/test")
+		conn, err = sql.Open("mysql", fmt.Sprintf("root@unix(%s)/test", sockName))
 		if err != nil {
 			time.Sleep(time.Second)
 			continue

@@ -150,7 +150,7 @@ var (
 	proxyProtocolHeaderTimeout = flag.Uint(nmProxyProtocolHeaderTimeout, 5, "proxy protocol header read timeout, unit is second.")
 )
 
-func Main() {
+func MainWithConfig(overrideConfig func(*config.Config)) {
 	help := flag.Bool("help", false, "show the usage")
 	flag.Parse()
 	if *help {
@@ -191,6 +191,10 @@ func Main() {
 	terror.MustNil(svr.Run())
 	<-exited
 	syncLog()
+}
+
+func Main() {
+	MainWithConfig(overrideConfig)
 }
 
 func exit() {
