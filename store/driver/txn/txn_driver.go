@@ -142,8 +142,27 @@ func (txn *tikvTxn) SetOption(opt int, val interface{}) {
 		txn.EnableForceSyncLog()
 	case tikvstore.Pessimistic:
 		txn.SetPessimistic(val.(bool))
+	case tikvstore.SnapshotTS:
+		txn.KVTxn.GetSnapshot().SetSnapshotTS(val.(uint64))
+	case tikvstore.InfoSchema:
+		txn.SetSchemaVer(val.(tikv.SchemaVer))
+	case tikvstore.CommitHook:
+		txn.SetCommitCallback(val.(func(string, error)))
+	case tikvstore.Enable1PC:
+		txn.SetEnable1PC(val.(bool))
+	case tikvstore.TxnScope:
+		txn.SetScope(val.(string))
 	default:
 		txn.KVTxn.SetOption(opt, val)
+	}
+}
+
+func (txn *tikvTxn) GetOption(opt int) interface{} {
+	switch opt {
+	case tikvstore.TxnScope:
+		return txn.KVTxn.GetScope()
+	default:
+		return txn.KVTxn.GetOption(opt)
 	}
 }
 
