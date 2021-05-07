@@ -11,8 +11,8 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	//// to pin dep in go.mod
-	//_ "github.com/oraluben/go-fuzz/go-fuzz-dep"
+	// to pin dep in go.mod
+	_ "github.com/oraluben/go-fuzz/go-fuzz-dep"
 
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/tidb-server/internal"
