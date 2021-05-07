@@ -1,4 +1,5 @@
-all:
+clear:
+	rm -rf */ *.log
 
-clean:
-	rm -rf */ *.zip *.log
+clean: clear
+	rm -rf *.zip
