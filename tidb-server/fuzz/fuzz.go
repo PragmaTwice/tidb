@@ -31,6 +31,9 @@ func init() {
 	sockName := path.Join(instanceDir, "tidb.sock")
 	storeDir := path.Join(instanceDir, "store")
 	tmpDir := path.Join(instanceDir, "tmp")
+	logFile := path.Join(instanceDir, "tidb.log")
+
+	fmt.Println(instanceDir)
 
 	go internal.MainWithConfig(func(c *config.Config) {
 		c.Host = ""
@@ -40,6 +43,7 @@ func init() {
 		c.Path = storeDir
 		c.Status.StatusPort = 0
 		c.TempStoragePath = tmpDir
+		c.Log.File.Filename = logFile
 	})
 
 	for i := 0; i < 5; i++ {
@@ -58,9 +62,11 @@ func init() {
 func Fuzz(raw []byte) int {
 	query := string(raw)
 
+	// fmt.Println(query)
 	_, err = conn.Exec(query)
 
 	if err != nil {
+		fmt.Println(err)
 		return 0
 	}
 
