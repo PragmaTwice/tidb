@@ -52,21 +52,38 @@ func init() {
 		c.Log.File.Filename = logFile
 	})
 
-	mysqlInstanceDir := strings.ReplaceAll(instanceDir, "tidb", "mysql")
+	mysqlInstanceDir := strings.ReplaceAll(instanceDir, "tidb-fuzz", "mysql-fuzz")
+	err = os.Mkdir(mysqlInstanceDir, os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+
 	mysqlSockName := path.Join(mysqlInstanceDir, "mysql.sock")
+	mysqlDataDir := path.Join(mysqlInstanceDir, "data")
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
-	mysqld := exec.Command("mysqld", fmt.Sprintf("--base-dir=%s", mysqlInstanceDir), fmt.Sprintf("--socket=%s", mysqlSockName), "--port=0")
+	mysqldInit := exec.Command("mysqld", "--initialize", fmt.Sprintf("--datadir=%s", mysqlDataDir))
+	err = mysqldInit.Run()
+	if err != nil {
+		panic(err)
+	}
+
+	mysqld := exec.Command("mysqld", fmt.Sprintf("--datadir=%s", mysqlDataDir), fmt.Sprintf("--socket=%s", mysqlSockName), "--port=0")
 	err = mysqld.Start()
 	if err != nil {
 		panic(err)
 	}
 
-	tidbConn = sqlConnect(sockName)
-	mysqlConn = sqlConnect(mysqlSockName)
+	tc := make(chan *sql.DB)
+	mc := make(chan *sql.DB)
+
+	go sqlConnect(sockName, tc)
+	go sqlConnect(mysqlSockName, mc)
+
+	tidbConn, mysqlConn = <-tc, <-mc
 }
 
-func sqlConnect(sockName string) *sql.DB {
+func sqlConnect(sockName string, cc chan *sql.DB) {
 	var conn *sql.DB
 
 	for i := 0; i < 5; i++ {
@@ -81,7 +98,7 @@ func sqlConnect(sockName string) *sql.DB {
 		panic(fmt.Sprintf("%s not up after 5 seconds", sockName))
 	}
 
-	return conn
+	cc <- conn
 }
 
 func isSelect(sql string) bool {
