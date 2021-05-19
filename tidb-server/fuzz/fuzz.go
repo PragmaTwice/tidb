@@ -39,8 +39,6 @@ func init() {
 	tmpDir := path.Join(instanceDir, "tmp")
 	logFile := path.Join(instanceDir, "tidb.log")
 
-	fmt.Println(instanceDir)
-
 	go internal.MainWithConfig(func(c *config.Config) {
 		c.Host = ""
 		c.Port = 0
@@ -62,7 +60,7 @@ func init() {
 	mysqlDataDir := path.Join(mysqlInstanceDir, "data")
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
-	mysqldInit := exec.Command("mysqld", "--initialize", fmt.Sprintf("--datadir=%s", mysqlDataDir))
+	mysqldInit := exec.Command("mysqld", "--initialize-insecure", fmt.Sprintf("--datadir=%s", mysqlDataDir))
 	err = mysqldInit.Run()
 	if err != nil {
 		panic(err)
@@ -81,6 +79,8 @@ func init() {
 	go sqlConnect(mysqlSockName, mc)
 
 	tidbConn, mysqlConn = <-tc, <-mc
+
+	fmt.Println(instanceDir)
 }
 
 func sqlConnect(sockName string, cc chan *sql.DB) {
@@ -90,7 +90,8 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 		conn, err = sql.Open("mysql", fmt.Sprintf("root@unix(%s)/test", sockName))
 		if err != nil {
 			time.Sleep(time.Second)
-			continue
+		} else {
+			break
 		}
 	}
 
@@ -128,38 +129,32 @@ func Fuzz(raw []byte) int {
 
 		err = <-tidbErr
 		if err != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 
 		err = <-mysqlErr
 		if <-mysqlErr != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 
 		tidbSR, err := comparer.NewSortedRows(<-tidbRows)
 		if err != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 
 		mysqlSR, err := comparer.NewSortedRows(<-mysqlRows)
 		if err != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 
 		k, l, r := comparer.DiffMetaInfo(tidbSR, mysqlSR)
 		if k != comparer.NoDiff {
-			fmt.Printf("[metainfo diff (%v)] tidb: %v, mysql: %v\n", k, l, r)
-			return 0
+			panic(fmt.Sprintf("[metainfo diff (%v)] tidb: %v, mysql: %v\n", k, l, r))
 		}
 
 		dr := comparer.DiffData(tidbSR, mysqlSR)
 		if dr != nil {
-			fmt.Printf("[data diff] %v", dr)
-			return 0
+			panic(fmt.Sprintf("[data diff] %v", dr))
 		}
 
 	} else {
@@ -173,14 +168,12 @@ func Fuzz(raw []byte) int {
 
 		err = <-tidbErr
 		if err != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 
 		err = <-mysqlErr
 		if err != nil {
-			fmt.Println(err)
-			return 0
+			panic(err)
 		}
 	}
 
