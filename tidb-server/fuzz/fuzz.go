@@ -87,6 +87,7 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 	var conn *sql.DB
 
 	for i := 0; i < 5; i++ {
+		// FIXME: mysql has no `test` database, we should create one
 		conn, err = sql.Open("mysql", fmt.Sprintf("root@unix(%s)/test", sockName))
 		if err != nil {
 			time.Sleep(time.Second)
