@@ -178,7 +178,7 @@ func Fuzz(raw []byte) int {
 		}
 
 		err = <-mysqlErr
-		if <-mysqlErr != nil {
+		if err != nil {
 			fmt.Println(err)
 			return 0
 		}
