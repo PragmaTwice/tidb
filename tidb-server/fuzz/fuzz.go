@@ -117,7 +117,7 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 func isSelect(sql string) bool {
 	sql = strings.TrimLeft(sql, " (\n")
 	sql = strings.ToLower(sql)
-	return strings.HasPrefix(sql, "select")
+	return strings.HasPrefix(sql, "select") || strings.HasPrefix(sql, "with")
 }
 
 // Fuzz is the required name by go-fuzz
@@ -183,13 +183,9 @@ func Fuzz(raw []byte) int {
 		te := <-tidbErr
 		me := <-mysqlErr
 
+		// assume that ddls are correct
 		if te != nil || me != nil {
-			if te != nil && me != nil {
-				fmt.Printf("[both err] tidb: %v; mysql: %v", te, me)
-				return 0
-			} else {
-				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
-			}
+			panic(fmt.Sprintf("[ddl error] tidb: %v; mysql: %v", te, me))
 		}
 	}
 
