@@ -72,8 +72,7 @@ func init() {
 		panic(err)
 	}
 
-	tc := make(chan *sql.DB)
-	mc := make(chan *sql.DB)
+	tc, mc := make(chan *sql.DB), make(chan *sql.DB)
 
 	go sqlConnect(sockName, tc)
 	go sqlConnect(mysqlSockName, mc)
@@ -124,7 +123,7 @@ func isSelect(sql string) bool {
 func Fuzz(raw []byte) int {
 	query := string(raw)
 
-	fmt.Println(query)
+	// fmt.Println(query)
 	tidbErr, mysqlErr := make(chan error), make(chan error)
 
 	if isSelect(query) {
@@ -144,8 +143,7 @@ func Fuzz(raw []byte) int {
 
 		if te != nil || me != nil {
 			if te != nil && me != nil {
-				fmt.Printf("[both err] tidb: %v; mysql: %v", te, me)
-				return 0
+				panic(fmt.Sprintf("[both err] tidb: %v; mysql: %v", te, me))
 			} else {
 				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
 			}
