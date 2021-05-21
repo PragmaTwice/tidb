@@ -87,8 +87,12 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 	var conn *sql.DB
 
 	for i := 0; i < 5; i++ {
-		// FIXME: mysql has no `test` database, we should create one
-		conn, err = sql.Open("mysql", fmt.Sprintf("root@unix(%s)/test", sockName))
+		if _, err := os.Stat(sockName); os.IsNotExist(err) {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		conn, err = sql.Open("mysql", fmt.Sprintf("root@unix(%s)/", sockName))
 		if err != nil {
 			time.Sleep(time.Second)
 		} else {
@@ -98,6 +102,13 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 
 	if err != nil {
 		panic(fmt.Sprintf("%s not up after 5 seconds", sockName))
+	}
+
+	_, _ = conn.Exec("create database test") // useful in mysql
+
+	_, err = conn.Exec("use test")
+	if err != nil {
+		panic(err)
 	}
 
 	cc <- conn
@@ -113,37 +124,39 @@ func isSelect(sql string) bool {
 func Fuzz(raw []byte) int {
 	query := string(raw)
 
-	// fmt.Println(query)
+	fmt.Println(query)
 	tidbErr, mysqlErr := make(chan error), make(chan error)
 
 	if isSelect(query) {
-		exec := func(conn *sql.DB, rc chan *sql.Rows, ec chan error) {
-			rows, err := conn.Query(query)
-			rc <- rows
+		exec := func(conn *sql.DB, rows **sql.Rows, ec chan error) {
+			var err error
+			*rows, err = conn.Query(query)
 			ec <- err
 		}
 
-		tidbRows, mysqlRows := make(chan *sql.Rows), make(chan *sql.Rows)
+		var tidbRows, mysqlRows *sql.Rows
 
-		go exec(tidbConn, tidbRows, tidbErr)
-		go exec(mysqlConn, mysqlRows, mysqlErr)
+		go exec(tidbConn, &tidbRows, tidbErr)
+		go exec(mysqlConn, &mysqlRows, mysqlErr)
 
-		err = <-tidbErr
+		te := <-tidbErr
+		me := <-mysqlErr
+
+		if te != nil || me != nil {
+			if te != nil && me != nil {
+				fmt.Printf("[both err] tidb: %v; mysql: %v", te, me)
+				return 0
+			} else {
+				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
+			}
+		}
+
+		tidbSR, err := comparer.NewSortedRows(tidbRows)
 		if err != nil {
 			panic(err)
 		}
 
-		err = <-mysqlErr
-		if <-mysqlErr != nil {
-			panic(err)
-		}
-
-		tidbSR, err := comparer.NewSortedRows(<-tidbRows)
-		if err != nil {
-			panic(err)
-		}
-
-		mysqlSR, err := comparer.NewSortedRows(<-mysqlRows)
+		mysqlSR, err := comparer.NewSortedRows(mysqlRows)
 		if err != nil {
 			panic(err)
 		}
@@ -167,14 +180,16 @@ func Fuzz(raw []byte) int {
 		go exec(tidbConn, tidbErr)
 		go exec(mysqlConn, mysqlErr)
 
-		err = <-tidbErr
-		if err != nil {
-			panic(err)
-		}
+		te := <-tidbErr
+		me := <-mysqlErr
 
-		err = <-mysqlErr
-		if err != nil {
-			panic(err)
+		if te != nil || me != nil {
+			if te != nil && me != nil {
+				fmt.Printf("[both err] tidb: %v; mysql: %v", te, me)
+				return 0
+			} else {
+				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
+			}
 		}
 	}
 
