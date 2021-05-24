@@ -151,6 +151,8 @@ func Fuzz(raw []byte) int {
 			if te != nil && me != nil {
 				if te.Error() != me.Error() {
 					panic(fmt.Sprintf("[both err] tidb: %v; mysql: %v", te, me))
+				} else {
+					return 0
 				}
 			} else {
 				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
