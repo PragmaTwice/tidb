@@ -52,7 +52,7 @@ require (
 	github.com/pingcap/sysutil v0.0.0-20210315073920-cc0985d983a3
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
 	github.com/pingcap/tipb v0.0.0-20210422074242-57dd881b81b1
-	github.com/pragmatwice/go-squirrel v0.0.0-20210512091357-deac282038e7 // indirect
+	github.com/pragmatwice/go-squirrel v0.0.0-20210512091357-deac282038e7
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.9.1
