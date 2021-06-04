@@ -59,6 +59,7 @@ func init() {
 	mysqlSockName := path.Join(mysqlInstanceDir, "mysql.sock")
 	mysqlPidFile := path.Join(mysqlInstanceDir, "mysql.pid")
 	mysqlDataDir := path.Join(mysqlInstanceDir, "data")
+	mysqlLogFile := path.Join(mysqlInstanceDir, "mysql.log")
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
 	mysqldInit := exec.Command("mysqld", "--initialize-insecure", fmt.Sprintf("--datadir=%s", mysqlDataDir))
@@ -71,7 +72,9 @@ func init() {
 		fmt.Sprintf("--datadir=%s", mysqlDataDir),
 		fmt.Sprintf("--pid-file=%s", mysqlPidFile),
 		fmt.Sprintf("--socket=%s", mysqlSockName),
-		"--port=0")
+		fmt.Sprintf("--log-error=%s", mysqlLogFile),
+		"--skip-networking",
+		"--mysqlx=0")
 
 	err = mysqld.Start()
 	if err != nil {
