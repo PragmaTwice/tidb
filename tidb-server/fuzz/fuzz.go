@@ -85,6 +85,20 @@ func init() {
 
 	tidbConn, mysqlConn = <-tc, <-mc
 
+	var sqlMode string
+	err = tidbConn.QueryRow("select @@sql_mode").Scan(&sqlMode)
+	if err != nil {
+		panic(err)
+	}
+
+	// mysql does not support NO_AUTO_CREATE_USER
+	sqlMode = strings.ReplaceAll(sqlMode, "NO_AUTO_CREATE_USER", "")
+
+	_, err = mysqlConn.Exec(fmt.Sprintf("set sql_mode = '%s'", sqlMode))
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println(instanceDir)
 }
 

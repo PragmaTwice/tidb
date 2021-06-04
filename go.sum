@@ -463,6 +463,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pragmatwice/go-squirrel v0.0.0-20210512080829-7548e4e0beac h1:jxb9oph+kQU2Nt49QkqQTc13XQEB+Eq4AVME/2ck+MY=
 github.com/pragmatwice/go-squirrel v0.0.0-20210512080829-7548e4e0beac/go.mod h1:1R2GPC2V92WUQrnK20S/iJklPlqdrq7E3Mybb0/yLDI=
+github.com/pragmatwice/go-squirrel v0.0.0-20210604093609-5965b3f69956 h1:M/Nc8EfJviDE+tcFNRDHrnA+1wKim1qOaK4OfKyaO2Y=
+github.com/pragmatwice/go-squirrel v0.0.0-20210604093609-5965b3f69956/go.mod h1:1R2GPC2V92WUQrnK20S/iJklPlqdrq7E3Mybb0/yLDI=
 github.com/prometheus/client_golang v0.9.0/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_golang v0.9.1/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_golang v0.9.3/go.mod h1:/TN21ttK/J9q6uSwhBd54HahCDft0ttaMvbicHlPoso=
