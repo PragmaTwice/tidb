@@ -45,7 +45,7 @@ func init() {
 		c.Socket = sockName
 		c.Store = "unistore"
 		c.Path = storeDir
-		c.Status.StatusPort = 0
+		c.Status.ReportStatus = false
 		c.TempStoragePath = tmpDir
 		c.Log.File.Filename = logFile
 	})
