@@ -26,6 +26,7 @@ var tidbConn *sql.DB = nil
 var mysqlConn *sql.DB = nil
 
 var err error
+var fuzzLog *os.File
 
 func init() {
 	os.Args = []string{os.Args[0]}
@@ -38,6 +39,12 @@ func init() {
 	storeDir := path.Join(instanceDir, "store")
 	tmpDir := path.Join(instanceDir, "tmp")
 	logFile := path.Join(instanceDir, "tidb.log")
+	fuzzLogFile := path.Join(instanceDir, "fuzz.log")
+
+	fuzzLog, err = os.OpenFile(fuzzLogFile, os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		panic(err)
+	}
 
 	go internal.MainWithConfig(func(c *config.Config) {
 		c.Host = ""
@@ -142,6 +149,12 @@ func isSelect(sql string) bool {
 	return strings.HasPrefix(sql, "select") || strings.HasPrefix(sql, "with")
 }
 
+func isCreate(sql string) bool {
+	sql = strings.TrimLeft(sql, " (\n")
+	sql = strings.ToLower(sql)
+	return strings.HasPrefix(sql, "create")
+}
+
 // Fuzz is the required name by go-fuzz
 func Fuzz(raw []byte) int {
 	query := string(raw)
@@ -210,7 +223,11 @@ func Fuzz(raw []byte) int {
 
 		// assume that ddls are correct
 		if te != nil || me != nil {
-			panic(fmt.Sprintf("[ddl error] tidb: %v; mysql: %v", te, me))
+			if isCreate(query) {
+				panic(fmt.Sprintf("[ddl error] tidb: %v; mysql: %v", te, me))
+			} else {
+				fmt.Fprintf(fuzzLog, "[dml error] tidb: %v; mysql: %v", te, me)
+			}
 		}
 	}
 
