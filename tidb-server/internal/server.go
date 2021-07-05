@@ -177,7 +177,7 @@ func MainWithConfig(overrideConfig func(*config.Config)) {
 	if _, err := failpoint.Status("github.com/pingcap/tidb/server/enableTestAPI"); err == nil {
 		tikv.EnableFailpoints()
 	}
-	setGlobalVars()
+	SetGlobalVars()
 	setCPUAffinity()
 	setupLog()
 	setHeapProfileTracker()
