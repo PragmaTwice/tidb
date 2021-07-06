@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"path"
@@ -26,7 +27,7 @@ var tidbConn *sql.DB = nil
 var mysqlConn *sql.DB = nil
 
 var err error
-var fuzzLog *os.File
+var fuzzLogger *log.Logger
 
 func init() {
 	os.Args = []string{os.Args[0]}
@@ -41,10 +42,11 @@ func init() {
 	logFile := path.Join(instanceDir, "tidb.log")
 	fuzzLogFile := path.Join(instanceDir, "fuzz.log")
 
-	fuzzLog, err = os.OpenFile(fuzzLogFile, os.O_CREATE|os.O_WRONLY, 0666)
+	fuzzLog, err := os.OpenFile(fuzzLogFile, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		panic(err)
 	}
+	fuzzLogger = log.New(fuzzLog, "", log.Lshortfile|log.LstdFlags)
 
 	go internal.MainWithConfig(func(c *config.Config) {
 		c.Host = ""
@@ -224,9 +226,13 @@ func Fuzz(raw []byte) int {
 		// assume that ddls are correct
 		if te != nil || me != nil {
 			if isCreate(query) {
-				panic(fmt.Sprintf("[ddl error] tidb: %v; mysql: %v", te, me))
+				fuzzLogger.Panicf("[ddl error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
 			} else {
-				fmt.Fprintf(fuzzLog, "[dml error] tidb: %v; mysql: %v", te, me)
+				if te != nil && me != nil && te.Error() == me.Error() {
+					fuzzLogger.Printf("[dml error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
+				} else {
+					fuzzLogger.Panicf("[dml error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
+				}
 			}
 		}
 	}
