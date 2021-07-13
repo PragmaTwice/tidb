@@ -5,6 +5,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.0 // indirect
 	github.com/HdrHistogram/hdrhistogram-go v0.9.0 // indirect
 	github.com/Jeffail/gabs/v2 v2.5.1
+	github.com/PingCAP-QE/clustered-index-rand-test v0.0.0-20210705064500-96c387f54dee // indirect
 	github.com/blacktear23/go-proxyprotocol v0.0.0-20180807104634-af7a81e8dd0d
 	github.com/carlmjohnson/flagext v0.21.0 // indirect
 	github.com/cheggaaa/pb/v3 v3.0.4 // indirect
@@ -49,7 +50,7 @@ require (
 	github.com/pingcap/sysutil v0.0.0-20210315073920-cc0985d983a3
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
 	github.com/pingcap/tipb v0.0.0-20210628060001-1793e022b962
-	github.com/pragmatwice/go-squirrel v0.0.0-20210705071237-e1ff19983983
+	github.com/pragmatwice/go-squirrel v0.0.0-20210712121023-a62e13d912f9
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.9.1
@@ -59,6 +60,7 @@ require (
 	github.com/tiancaiamao/appdash v0.0.0-20181126055449-889f96f722a2
 	github.com/tikv/client-go/v2 v2.0.0-alpha.0.20210701075128-88f909bcdd3f
 	github.com/tikv/pd v1.1.0-beta.0.20210323121136-78679e5e209d
+	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/twmb/murmur3 v1.1.3
 	github.com/uber-go/atomic v1.4.0
 	github.com/uber/jaeger-client-go v2.22.1+incompatible
