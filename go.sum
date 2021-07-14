@@ -41,6 +41,8 @@ github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/PingCAP-QE/clustered-index-rand-test v0.0.0-20210705064500-96c387f54dee h1:9Hy6mVxGDzdYo2YN+r5Dpkiy9SHanwFxMQjWwmlwuHg=
 github.com/PingCAP-QE/clustered-index-rand-test v0.0.0-20210705064500-96c387f54dee/go.mod h1:MlhGd4+n5FBjnYgKeJmnv4IciSJjDMoMVBidN5K+Hhk=
+github.com/PingCAP-QE/clustered-index-rand-test v0.0.0-20210714064300-890b46dcf4ce h1:ZvGlg7513LiXm8Qg1Yt9S/IX+YOByC9Nw7lLgdgNlC8=
+github.com/PingCAP-QE/clustered-index-rand-test v0.0.0-20210714064300-890b46dcf4ce/go.mod h1:MlhGd4+n5FBjnYgKeJmnv4IciSJjDMoMVBidN5K+Hhk=
 github.com/PuerkitoBio/purell v1.1.0/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=
 github.com/PuerkitoBio/purell v1.1.1/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
@@ -519,6 +521,8 @@ github.com/pragmatwice/go-squirrel v0.0.0-20210711145352-4e809a24a3b6 h1:RGlhi1h
 github.com/pragmatwice/go-squirrel v0.0.0-20210711145352-4e809a24a3b6/go.mod h1:02EbKgzT9GYbVoXS0XI3LOilYR4W7WfDb1JDGtXk7QY=
 github.com/pragmatwice/go-squirrel v0.0.0-20210712121023-a62e13d912f9 h1:ZY1V8htHq5TES6xoYIk9GbbLLF5eU9Pu7EohwEHnv1Q=
 github.com/pragmatwice/go-squirrel v0.0.0-20210712121023-a62e13d912f9/go.mod h1:02EbKgzT9GYbVoXS0XI3LOilYR4W7WfDb1JDGtXk7QY=
+github.com/pragmatwice/go-squirrel v0.0.0-20210714065842-8e8f626aa94e h1:pc0g+zzGpiVQiQHTjhJ+IOTIh8viXZzOT2nxgmyjWS8=
+github.com/pragmatwice/go-squirrel v0.0.0-20210714065842-8e8f626aa94e/go.mod h1:I6gP2HWqiiUnOv74x5bvZemX13pbKJ/UGt9wGDDd/Uk=
 github.com/prometheus/client_golang v0.9.0/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_golang v0.9.1/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_golang v0.9.3/go.mod h1:/TN21ttK/J9q6uSwhBd54HahCDft0ttaMvbicHlPoso=
