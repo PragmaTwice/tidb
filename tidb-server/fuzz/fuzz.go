@@ -41,7 +41,7 @@ func init() {
 	tmpDir := path.Join(instanceDir, "tmp")
 	logFile := path.Join(instanceDir, "tidb.log")
 	fuzzLogFile := path.Join(instanceDir, "fuzz.log")
-	slowQueryFile := path.Join(instanceDir, "slow-query.log")
+	slowQueryFile := path.Join(instanceDir, "tidb-slow-query.log")
 
 	fuzzLog, err := os.OpenFile(fuzzLogFile, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
@@ -64,20 +64,20 @@ func init() {
 	mysqlInstanceDir := strings.ReplaceAll(instanceDir, "tidb-fuzz", "mysql-fuzz")
 	err = os.Mkdir(mysqlInstanceDir, os.ModePerm)
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panic("failed to create mysql instance datadir:", err)
 	}
 
 	mysqlSockName := path.Join(mysqlInstanceDir, "mysql.sock")
 	mysqlPidFile := path.Join(mysqlInstanceDir, "mysql.pid")
 	mysqlDataDir := path.Join(mysqlInstanceDir, "data")
 	mysqlLogFile := path.Join(mysqlInstanceDir, "mysql.log")
-	mysqlSlowLogFile := path.Join(mysqlInstanceDir, "slow-query.log")
+	mysqlSlowLogFile := path.Join(mysqlInstanceDir, "mysql-slow-query.log")
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
 	mysqldInit := exec.Command("mysqld", "--initialize-insecure", fmt.Sprintf("--datadir=%s", mysqlDataDir))
 	err = mysqldInit.Run()
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panic("failed to initialize mysqld:", err)
 	}
 
 	mysqld := exec.Command("mysqld",
@@ -91,7 +91,7 @@ func init() {
 
 	err = mysqld.Start()
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panic("failed to start mysqld:", err)
 	}
 
 	tc, mc := make(chan *sql.DB), make(chan *sql.DB)
@@ -101,10 +101,17 @@ func init() {
 
 	tidbConn, mysqlConn = <-tc, <-mc
 
+	syncSqlMode()
+
+	fuzzLogger.Printf("succeed to start tidb and mysql for fuzz in %v", instanceDir)
+	fmt.Println(instanceDir) // to notify go fuzz
+}
+
+func syncSqlMode() {
 	var sqlMode string
 	err = tidbConn.QueryRow("select @@sql_mode").Scan(&sqlMode)
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panic("failed to get sql_mode from tidb:", err)
 	}
 
 	// mysql does not support NO_AUTO_CREATE_USER
@@ -112,10 +119,8 @@ func init() {
 
 	_, err = mysqlConn.Exec(fmt.Sprintf("set sql_mode = '%s'", sqlMode))
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panic("failed to set sql_mode for mysql:", err)
 	}
-
-	fmt.Println(instanceDir)
 }
 
 func sqlConnect(sockName string, cc chan *sql.DB) {
@@ -136,14 +141,14 @@ func sqlConnect(sockName string, cc chan *sql.DB) {
 	}
 
 	if err != nil {
-		panic(fmt.Sprintf("%s not up after 5 seconds", sockName))
+		fuzzLogger.Panicf("%s not up after 5 seconds", sockName)
 	}
 
 	_, _ = conn.Exec("create database test") // useful in mysql
 
 	_, err = conn.Exec("use test")
 	if err != nil {
-		panic(err)
+		fuzzLogger.Panicf("%s failed to use database `test`: %v", sockName, err)
 	}
 
 	cc <- conn
@@ -186,33 +191,33 @@ func Fuzz(raw []byte) int {
 		if te != nil || me != nil {
 			if te != nil && me != nil {
 				if te.Error() != me.Error() {
-					panic(fmt.Sprintf("[both err] tidb: %v; mysql: %v", te, me))
+					fuzzLogger.Panic(fmt.Sprintf("[both err] tidb: %v; mysql: %v", te, me))
 				} else {
 					return 0
 				}
 			} else {
-				panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
+				fuzzLogger.Panic(fmt.Sprintf("[one side err] tidb: %v; mysql: %v", te, me))
 			}
 		}
 
 		tidbSR, err := comparer.NewSortedRows(tidbRows)
 		if err != nil {
-			panic(err)
+			fuzzLogger.Panic("failed to create sorted rows for tidb:", err)
 		}
 
 		mysqlSR, err := comparer.NewSortedRows(mysqlRows)
 		if err != nil {
-			panic(err)
+			fuzzLogger.Panic("failed to create sorted rows for mysql:", err)
 		}
 
 		k, l, r := comparer.DiffMetaInfo(tidbSR, mysqlSR)
 		if k != comparer.NoDiff {
-			panic(fmt.Sprintf("[metainfo diff (%v)] tidb: %v, mysql: %v\n", k, l, r))
+			fuzzLogger.Panic(fmt.Sprintf("[metainfo diff (%v)] tidb: %v, mysql: %v\n", k, l, r))
 		}
 
 		dr := comparer.DiffData(tidbSR, mysqlSR)
 		if dr != nil {
-			panic(fmt.Sprintf("[data diff] %v", dr))
+			fuzzLogger.Panic(fmt.Sprintf("[data diff] %v", dr))
 		}
 
 	} else {
@@ -230,12 +235,12 @@ func Fuzz(raw []byte) int {
 		// assume that ddls are correct
 		if te != nil || me != nil {
 			if isCreate(query) {
-				fuzzLogger.Panicf("[ddl error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
+				fuzzLogger.Panicf("[ddl fatal error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
 			} else {
 				if te != nil && me != nil && te.Error() == me.Error() {
 					fuzzLogger.Printf("[dml error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
 				} else {
-					fuzzLogger.Panicf("[dml error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
+					fuzzLogger.Panicf("[dml fatal error] stmt: %v; tidb: %v; mysql: %v\n", query, te, me)
 				}
 			}
 		}
