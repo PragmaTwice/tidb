@@ -41,6 +41,7 @@ func init() {
 	tmpDir := path.Join(instanceDir, "tmp")
 	logFile := path.Join(instanceDir, "tidb.log")
 	fuzzLogFile := path.Join(instanceDir, "fuzz.log")
+	slowQueryFile := path.Join(instanceDir, "slow-query.log")
 
 	fuzzLog, err := os.OpenFile(fuzzLogFile, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
@@ -57,6 +58,7 @@ func init() {
 		c.Status.ReportStatus = false
 		c.TempStoragePath = tmpDir
 		c.Log.File.Filename = logFile
+		c.Log.SlowQueryFile = slowQueryFile
 	})
 
 	mysqlInstanceDir := strings.ReplaceAll(instanceDir, "tidb-fuzz", "mysql-fuzz")
@@ -69,6 +71,7 @@ func init() {
 	mysqlPidFile := path.Join(mysqlInstanceDir, "mysql.pid")
 	mysqlDataDir := path.Join(mysqlInstanceDir, "data")
 	mysqlLogFile := path.Join(mysqlInstanceDir, "mysql.log")
+	mysqlSlowLogFile := path.Join(mysqlInstanceDir, "slow-query.log")
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
 	mysqldInit := exec.Command("mysqld", "--initialize-insecure", fmt.Sprintf("--datadir=%s", mysqlDataDir))
@@ -82,6 +85,7 @@ func init() {
 		fmt.Sprintf("--pid-file=%s", mysqlPidFile),
 		fmt.Sprintf("--socket=%s", mysqlSockName),
 		fmt.Sprintf("--log-error=%s", mysqlLogFile),
+		fmt.Sprintf("--slow-query-log-file=%s", mysqlSlowLogFile),
 		"--skip-networking",
 		"--mysqlx=0")
 
