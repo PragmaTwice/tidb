@@ -36,7 +36,7 @@ require (
 	github.com/ngaut/sync2 v0.0.0-20141008032647-7a24ed77b2ef
 	github.com/opentracing/basictracer-go v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
-	github.com/oraluben/go-fuzz v0.0.0-20210616082939-039a3ac6d052
+	github.com/oraluben/go-fuzz v0.0.0-20210728073254-bbdfc7337134
 	github.com/phayes/freeport v0.0.0-20180830031419-95f893ade6f2
 	github.com/pingcap/badger v1.5.1-0.20200908111422-2e78ee155d19
 	github.com/pingcap/br v5.2.0-alpha.0.20210611153635-74f18bcbe19d+incompatible
@@ -50,7 +50,7 @@ require (
 	github.com/pingcap/sysutil v0.0.0-20210315073920-cc0985d983a3
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
 	github.com/pingcap/tipb v0.0.0-20210628060001-1793e022b962
-	github.com/pragmatwice/go-squirrel v0.0.0-20210714065842-8e8f626aa94e
+	github.com/pragmatwice/go-squirrel v0.0.0-20210727074812-a2b342731f69
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.9.1
