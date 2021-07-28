@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,9 +29,17 @@ var mysqlConn *sql.DB = nil
 
 var err error
 var fuzzLogger *log.Logger
+var verboseLevel int = 0
 
 func init() {
 	os.Args = []string{os.Args[0]}
+
+	if verboseStr := os.Getenv("TIFUZZ_VERBOSE"); verboseStr != "" {
+		verboseLevel, err = strconv.Atoi(verboseStr)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	instanceDir, err := ioutil.TempDir("", "tidb-fuzz.*")
 	if err != nil {
@@ -75,6 +84,10 @@ func init() {
 
 	// ref to https://dev.mysql.com/doc/refman/8.0/en/multiple-servers.html
 	mysqldInit := exec.Command("mysqld", "--initialize-insecure", fmt.Sprintf("--datadir=%s", mysqlDataDir))
+	if verboseLevel > 0 {
+		fuzzLogger.Printf("mysqld init command: %v", mysqldInit.String())
+	}
+
 	err = mysqldInit.Run()
 	if err != nil {
 		fuzzLogger.Panic("failed to initialize mysqld:", err)
@@ -88,6 +101,9 @@ func init() {
 		fmt.Sprintf("--slow-query-log-file=%s", mysqlSlowLogFile),
 		"--skip-networking",
 		"--mysqlx=0")
+	if verboseLevel > 0 {
+		fuzzLogger.Printf("mysqld start command: %v", mysqld.String())
+	}
 
 	err = mysqld.Start()
 	if err != nil {
@@ -103,7 +119,7 @@ func init() {
 
 	syncSqlMode()
 
-	fuzzLogger.Printf("succeed to start tidb and mysql for fuzz in %v", instanceDir)
+	fuzzLogger.Printf("succeed to start tidb (in %v) and mysql (in %v) for fuzz", instanceDir, mysqlInstanceDir)
 	fmt.Println(instanceDir) // to notify go fuzz
 }
 
@@ -174,6 +190,10 @@ func Fuzz(raw []byte) int {
 	tidbErr, mysqlErr := make(chan error), make(chan error)
 
 	if isSelect(query) {
+		if verboseLevel > 0 {
+			fuzzLogger.Printf("[query] %v", query)
+		}
+
 		exec := func(conn *sql.DB, rows **sql.Rows, ec chan error) {
 			var err error
 			*rows, err = conn.Query(query)
@@ -221,6 +241,10 @@ func Fuzz(raw []byte) int {
 		}
 
 	} else {
+		if verboseLevel > 0 {
+			fuzzLogger.Printf("[ddl/dml] %v", query)
+		}
+
 		exec := func(conn *sql.DB, ec chan error) {
 			_, err := conn.Exec(query)
 			ec <- err
